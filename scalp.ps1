@@ -1,5 +1,5 @@
 # ======================================================
-# WINDOWS 11 LTSC HARDENING SCRIPT - SAFE NETWORK VERSION
+# WINDOWS 11 LTSC HARDENING SCRIPT - GOD-TIER LOCKDOWN
 # Author: Ruthless Bastard Ops
 # Run as Administrator
 # ======================================================
@@ -62,104 +62,80 @@ Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" 
 # --------------------------------------------
 $searchPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
 if (-not (Test-Path $searchPath)) {
-    New-Item -Path $searchPath -Force | Out-Null
+  New-Item -Path $searchPath -Force | Out-Null
 }
 New-ItemProperty -Path $searchPath -Name "AllowCortana" -Value 0 -PropertyType DWord -Force | Out-Null
 
 # --------------------------------------------
-# SECTION 6: Allow Firefox browser only
+# SECTION 5: Set DNS to Quad9 (9.9.9.9)
 # --------------------------------------------
-$browserPath = "C:\Program Files\Mozilla Firefox\firefox.exe"
-New-NetFirewallRule -DisplayName "ALLOW Firefox" `
-  -Direction Outbound `
-  -Program $browserPath `
-  -Action Allow `
-  -Enabled True
+$iface = Get-NetAdapter | Where-Object {$_.Status -eq "Up"}
+Set-DnsClientServerAddress -InterfaceIndex $iface.InterfaceIndex -ServerAddresses ("9.9.9.9", "149.112.112.112")
 
 # --------------------------------------------
-# SECTION 6.5: Allow Telegram Desktop client
+# SECTION 6: Global Outbound Firewall Block
 # --------------------------------------------
-$telegramPath = "$env:APPDATA\Telegram Desktop\Telegram.exe"
-New-NetFirewallRule -DisplayName "ALLOW Telegram" `
-  -Direction Outbound `
-  -Program $telegramPath `
-  -Action Allow `
-  -Enabled True
+Set-NetFirewallProfile -Profile Domain,Public,Private -DefaultOutboundAction Block
 
 # --------------------------------------------
-# SECTION 7: Allow DHCP traffic
+# SECTION 7: Allow Firefox Browser
 # --------------------------------------------
-New-NetFirewallRule -DisplayName "ALLOW DHCP OUT (UDP 67)" `
-  -Direction Outbound `
-  -Program "C:\Windows\System32\svchost.exe" `
-  -Protocol UDP `
-  -RemotePort 67 `
-  -Action Allow
-
-New-NetFirewallRule -DisplayName "ALLOW DHCP IN (UDP 68)" `
-  -Direction Inbound `
-  -Program "C:\Windows\System32\svchost.exe" `
-  -Protocol UDP `
-  -LocalPort 68 `
-  -Action Allow
+$firefox = "C:\Program Files\Mozilla Firefox\firefox.exe"
+New-NetFirewallRule -DisplayName "ALLOW Firefox" -Direction Outbound -Program $firefox -Action Allow -Enabled True
 
 # --------------------------------------------
-# SECTION 7.5: Set system DNS to Quad9
+# SECTION 8: Allow Telegram Desktop
 # --------------------------------------------
-$interface = Get-NetAdapter | Where-Object {$_.Status -eq "Up"}
-Set-DnsClientServerAddress -InterfaceIndex $interface.InterfaceIndex -ServerAddresses ("9.9.9.9", "149.112.112.112")
+$telegram = "$env:APPDATA\Telegram Desktop\Telegram.exe"
+New-NetFirewallRule -DisplayName "ALLOW Telegram" -Direction Outbound -Program $telegram -Action Allow -Enabled True
 
 # --------------------------------------------
-# SECTION 7.6: Minimal Safe Allow List
+# SECTION 9: Allow DNS, DHCP, NTP via svchost
 # --------------------------------------------
-New-NetFirewallRule -DisplayName "ALLOW DNS OUT (UDP 53)" `
-  -Direction Outbound `
-  -Program "C:\Windows\System32\svchost.exe" `
-  -Protocol UDP `
-  -RemotePort 53 `
-  -Action Allow `
-  -Enabled True
+New-NetFirewallRule -DisplayName "ALLOW DNS OUT" -Direction Outbound `
+  -Program "C:\Windows\System32\svchost.exe" -Protocol UDP -RemotePort 53 -Action Allow
 
-New-NetFirewallRule -DisplayName "ALLOW ICMP OUT" `
-  -Protocol ICMPv4 `
-  -Direction Outbound `
-  -Action Allow `
-  -Enabled True
+New-NetFirewallRule -DisplayName "ALLOW DHCP OUT" -Direction Outbound `
+  -Program "C:\Windows\System32\svchost.exe" -Protocol UDP -RemotePort 67 -Action Allow
 
-New-NetFirewallRule -DisplayName "ALLOW svchost LOOPBACK" `
-  -Direction Outbound `
-  -Program "C:\Windows\System32\svchost.exe" `
-  -RemoteAddress "127.0.0.1" `
-  -Action Allow `
-  -Enabled True
+New-NetFirewallRule -DisplayName "ALLOW DHCP IN" -Direction Inbound `
+  -Program "C:\Windows\System32\svchost.exe" -Protocol UDP -LocalPort 68 -Action Allow
+
+New-NetFirewallRule -DisplayName "ALLOW NTP OUT" -Direction Outbound `
+  -Program "C:\Windows\System32\svchost.exe" -Protocol UDP -RemotePort 123 -Action Allow
 
 # --------------------------------------------
-# SECTION 8: Allow NTP (time sync)
+# SECTION 10: BLOCK all other svchost outbound
 # --------------------------------------------
-New-NetFirewallRule -DisplayName "ALLOW NTP OUT (UDP 123)" `
-  -Direction Outbound `
-  -Program "C:\Windows\System32\svchost.exe" `
-  -Protocol UDP `
-  -RemotePort 123 `
-  -Action Allow
+New-NetFirewallRule -DisplayName "BLOCK svchost OUTBOUND" `
+  -Program "C:\Windows\System32\svchost.exe" -Direction Outbound -Action Block -Enabled True
 
 # --------------------------------------------
-# SECTION 10: Blackhole known telemetry domains
+# SECTION 11: BLOCK Telemetry Domains via FQDN
 # --------------------------------------------
-$telemetryDomains = @"
-0.0.0.0 vortex.data.microsoft.com
-0.0.0.0 telemetry.microsoft.com
-0.0.0.0 watson.telemetry.microsoft.com
-0.0.0.0 watson.ppe.telemetry.microsoft.com
-0.0.0.0 settings-win.data.microsoft.com
-0.0.0.0 cs1.wpc.v0cdn.net
-0.0.0.0 a-0001.a-msedge.net
-0.0.0.0 fe2.update.microsoft.com.akadns.net
-0.0.0.0 ssw.live.com
-"@
-Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value $telemetryDomains
+$domains = @(
+  "vortex.data.microsoft.com",
+  "telemetry.microsoft.com",
+  "watson.telemetry.microsoft.com",
+  "watson.ppe.telemetry.microsoft.com",
+  "settings-win.data.microsoft.com",
+  "cs1.wpc.v0cdn.net",
+  "a-0001.a-msedge.net",
+  "fe2.update.microsoft.com.akadns.net",
+  "ssw.live.com"
+)
+foreach ($domain in $domains) {
+  New-NetFirewallRule -DisplayName "BLOCK $domain" `
+    -RemoteFQDN $domain -Direction Outbound -Action Block
+}
 
 # --------------------------------------------
-# SECTION 11: Final confirmation message
+# SECTION 12: BLOCK All Remaining Traffic (Failsafe)
 # --------------------------------------------
-Write-Host "`nSANITIZED LOCKDOWN: Telemetry wiped. Firefox, Telegram, DNS, DHCP, NTP permitted. No outbound block enforced.`n"
+New-NetFirewallRule -DisplayName "BLOCK ALL REMAINING" `
+  -Direction Outbound -Action Block -Enabled True
+
+# --------------------------------------------
+# SECTION 13: Final Confirmation
+# --------------------------------------------
+Write-Host "`n🔥 HARDENING COMPLETE: Only Firefox, Telegram, DNS, DHCP, and NTP allowed. svchost chained. Microsoft gagged. You are now a digital specter. 🔥`n"
