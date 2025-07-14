@@ -1,20 +1,20 @@
 # ======================================================
 # WINDOWS 11 LTSC HARDENING SCRIPT - FULL LOCKDOWN
 # Author: Ruthless Bastard Ops
-# Run this as Administrator
+# Run as Administrator
 # ======================================================
 
 # --------------------------------------------
-# SECTION 1: Kill Microsoft telemetry/spyware services
+# SECTION 1: Kill telemetry/spyware services
 # --------------------------------------------
-# These services report usage, diagnostics, crash data, etc.
+# These services send telemetry and diagnostics data to Microsoft.
 $telemetryServices = @(
   "DiagTrack",           # Telemetry backbone
   "dmwappushservice",    # Push telemetry service
   "WdiServiceHost",      # Diagnostic host
-  "WdiSystemHost",       # Another diagnostic system host
+  "WdiSystemHost",       # Additional diagnostic host
   "WerSvc",              # Windows Error Reporting
-  "PcaSvc"               # Program Compatibility Assistant (more reporting BS)
+  "PcaSvc"               # Program Compatibility Assistant (more reporting)
 )
 foreach ($svc in $telemetryServices) {
   Stop-Service $svc -Force -ErrorAction SilentlyContinue
@@ -22,9 +22,9 @@ foreach ($svc in $telemetryServices) {
 }
 
 # --------------------------------------------
-# SECTION 2: Disable telemetry-related scheduled tasks
+# SECTION 2: Disable telemetry scheduled tasks
 # --------------------------------------------
-# These auto-trigger data collection events—kill them
+# These tasks trigger various telemetry events.
 $telemetryTasks = @(
   "\Microsoft\Windows\Application Experience\ProgramDataUpdater",
   "\Microsoft\Windows\Autochk\Proxy",
@@ -38,13 +38,13 @@ $telemetryTasks = @(
   "\Microsoft\Windows\Windows Error Reporting\QueueReporting"
 )
 foreach ($task in $telemetryTasks) {
-  schtasks /Change /TN $task /Disable 2>$null  # Ignore error if task not found
+  schtasks /Change /TN $task /Disable 2>$null  # Suppress errors if task is absent
 }
 
 # --------------------------------------------
-# SECTION 3: Disable telemetry/CEIP (Customer Experience Program) via registry
+# SECTION 3: Disable telemetry/CEIP via registry
 # --------------------------------------------
-# These registry values force Windows to fully shut down telemetry even in enterprise
+# These registry values shut down telemetry and consumer features.
 $registryPaths = @(
   "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection",
   "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection",
@@ -57,20 +57,17 @@ foreach ($path in $registryPaths) {
     New-Item -Path $path -Force | Out-Null
   }
 }
-# Zero out telemetry
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection" -Name "AllowTelemetry" -Value 0 -Type DWord
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\DataCollection" -Name "AllowTelemetry" -Value 0 -Type DWord
-# Kill CEIP (Customer Experience)
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\SQMClient\Windows" -Name "CEIPEnable" -Value 0 -Type DWord
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\SQMClient\Windows" -Name "CEIPEnable" -Value 0 -Type DWord
-# Disable consumer experience crap
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Name "DisableConsumerFeatures" -Value 1 -Type DWord
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent" -Name "DisableWindowsConsumerFeatures" -Value 1 -Type DWord
 
 # --------------------------------------------
-# SECTION 4: Disable Cortana/Online Search if key exists (skip error)
+# SECTION 4: Optional Cortana/Online Search Disable
 # --------------------------------------------
-# LTSC doesn't have Cortana by default, so create key first
+# LTSC typically does not include Cortana; create the key if missing.
 $searchPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search"
 if (-not (Test-Path $searchPath)) {
     New-Item -Path $searchPath -Force | Out-Null
@@ -78,18 +75,18 @@ if (-not (Test-Path $searchPath)) {
 New-ItemProperty -Path $searchPath -Name "AllowCortana" -Value 0 -PropertyType DWord -Force | Out-Null
 
 # --------------------------------------------
-# SECTION 5: Block ALL outbound traffic (default deny)
+# SECTION 5: Block ALL outbound traffic by default
 # --------------------------------------------
-# This sets up a default deny firewall posture
+# Establish a default-deny outbound firewall rule.
 New-NetFirewallRule -DisplayName "BLOCK ALL OUTBOUND" `
   -Direction Outbound `
   -Action Block `
   -Enabled True
 
 # --------------------------------------------
-# SECTION 6: Allow Firefox browser ONLY
+# SECTION 6: Allow Firefox browser only
 # --------------------------------------------
-# Replace this path if you use a different browser or installed it elsewhere
+# Replace the path if Firefox is installed elsewhere.
 $browserPath = "C:\Program Files\Mozilla Firefox\firefox.exe"
 New-NetFirewallRule -DisplayName "ALLOW Firefox" `
   -Direction Outbound `
@@ -100,7 +97,7 @@ New-NetFirewallRule -DisplayName "ALLOW Firefox" `
 # --------------------------------------------
 # SECTION 6.5: Allow Telegram Desktop client
 # --------------------------------------------
-# Adjust if your Telegram path is custom
+# Adjust the path if your Telegram installation differs.
 $telegramPath = "$env:APPDATA\Telegram Desktop\Telegram.exe"
 New-NetFirewallRule -DisplayName "ALLOW Telegram" `
   -Direction Outbound `
@@ -109,9 +106,9 @@ New-NetFirewallRule -DisplayName "ALLOW Telegram" `
   -Enabled True
 
 # --------------------------------------------
-# SECTION 7: Allow DHCP traffic (required for IP address)
+# SECTION 7: Allow DHCP traffic (for dynamic IP assignment)
 # --------------------------------------------
-# These two rules allow dynamic IP from router (DHCP client/server)
+# Allow DHCP outbound (UDP port 67) and inbound (UDP port 68) for IP lease renewal.
 New-NetFirewallRule -DisplayName "ALLOW DHCP OUT (UDP 67)" `
   -Direction Outbound `
   -Program "C:\Windows\System32\svchost.exe" `
@@ -129,24 +126,40 @@ New-NetFirewallRule -DisplayName "ALLOW DHCP IN (UDP 68)" `
 # --------------------------------------------
 # SECTION 7.5: Set system DNS to Quad9 (secure, privacy-respecting DNS)
 # --------------------------------------------
+# Set the primary DNS servers for the active network interface.
 $interface = Get-NetAdapter | Where-Object {$_.Status -eq "Up"}
 Set-DnsClientServerAddress -InterfaceIndex $interface.InterfaceIndex -ServerAddresses ("9.9.9.9", "149.112.112.112")
 
 # --------------------------------------------
-# SECTION 7.6: Allow DNS lookups (UDP 53)
+# SECTION 7.6: Minimal Safe Allow List for DNS and Diagnostics
 # --------------------------------------------
-# Needed for resolving domains via svchost
+# Allow DNS resolution via svchost (UDP port 53)
 New-NetFirewallRule -DisplayName "ALLOW DNS OUT (UDP 53)" `
   -Direction Outbound `
   -Program "C:\Windows\System32\svchost.exe" `
   -Protocol UDP `
   -RemotePort 53 `
-  -Action Allow
+  -Action Allow `
+  -Enabled True
+
+# Allow ICMP (e.g., ping, diagnostics)
+New-NetFirewallRule -DisplayName "ALLOW ICMP OUT" `
+  -Protocol ICMPv4 `
+  -Direction Outbound `
+  -Action Allow `
+  -Enabled True
+
+# Allow loopback traffic for svchost (internal communication)
+New-NetFirewallRule -DisplayName "ALLOW svchost LOOPBACK" `
+  -Direction Outbound `
+  -Program "C:\Windows\System32\svchost.exe" `
+  -RemoteAddress "127.0.0.1" `
+  -Action Allow `
+  -Enabled True
 
 # --------------------------------------------
-# SECTION 8: Allow NTP (time sync service)
+# SECTION 8: Allow NTP (Network Time Protocol for time sync)
 # --------------------------------------------
-# This keeps system time correct via network time
 New-NetFirewallRule -DisplayName "ALLOW NTP OUT (UDP 123)" `
   -Direction Outbound `
   -Program "C:\Windows\System32\svchost.exe" `
@@ -155,18 +168,18 @@ New-NetFirewallRule -DisplayName "ALLOW NTP OUT (UDP 123)" `
   -Action Allow
 
 # --------------------------------------------
-# SECTION 9: Block ALL other svchost-based outbound traffic
+# SECTION 9: Block all other outbound svchost.exe traffic
 # --------------------------------------------
-# svchost is used by many services—block all but the few allowed above
+# After whitelisting necessary ports, block all remaining outbound traffic from svchost.exe.
 New-NetFirewallRule -DisplayName "BLOCK ALL svchost.exe OUTBOUND" `
   -Direction Outbound `
   -Program "C:\Windows\System32\svchost.exe" `
   -Action Block
 
 # --------------------------------------------
-# SECTION 10: Blackhole Microsoft telemetry domains via hosts file
+# SECTION 10: Blackhole known telemetry domains via hosts file
 # --------------------------------------------
-# DNS poisoning to ensure even hardcoded requests fail
+# Redirect telemetry domains to 0.0.0.0 to prevent them from reaching Microsoft.
 $telemetryDomains = @"
 0.0.0.0 vortex.data.microsoft.com
 0.0.0.0 telemetry.microsoft.com
@@ -181,6 +194,6 @@ $telemetryDomains = @"
 Add-Content -Path "$env:SystemRoot\System32\drivers\etc\hosts" -Value $telemetryDomains
 
 # --------------------------------------------
-# SECTION 11: Final confirmation
+# SECTION 11: Final confirmation message
 # --------------------------------------------
-Write-Host "`nLOCKDOWN COMPLETE: Only Firefox, Telegram, DHCP, DNS, and NTP allowed. Everything else blocked.`n"
+Write-Host "`nLOCKDOWN COMPLETE: Only Firefox, Telegram, DHCP, DNS, and NTP allowed. Everything else is blocked.`n"
