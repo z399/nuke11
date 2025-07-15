@@ -58,6 +58,7 @@ netsh advfirewall set allprofiles firewallpolicy blockinbound,blockoutbound
 
 # Step 8: Allow Basic Programs (Example - Allow Only Firefox)
 netsh advfirewall firewall add rule name="Allow Firefox" dir=out action=allow program="C:\Program Files\Mozilla Firefox\firefox.exe" enable=yes
+netsh advfirewall firewall add rule name="Allow Telegram" dir=out action=allow program="C:\Apps\Telegram\Telegram.exe" enable=yes
 
 # Step 9: Disable Cloud Content (Bing Search, Tips, Ads)
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Search" /v BingSearchEnabled /t REG_DWORD /d 0 /f
