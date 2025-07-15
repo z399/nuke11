@@ -1,0 +1,37 @@
+# ============================
+# DNSCrypt-Proxy Update Script
+# ============================
+
+# CONFIG
+$dnscryptUrl = "https://github.com/DNSCrypt/dnscrypt-proxy/releases/latest/download/dnscrypt-proxy-win64.zip"
+$installDir = "C:\Tools\dnscrypt-proxy"
+$serviceName = "dnscrypt-proxy"
+$tomlBackup = "$installDir\dnscrypt-proxy.toml.bak"
+$tomlMain = "$installDir\dnscrypt-proxy.toml"
+
+# STEP 1: BACKUP CURRENT CONFIG
+if (Test-Path $tomlMain) {
+    Copy-Item $tomlMain $tomlBackup -Force
+}
+
+# STEP 2: STOP + UNINSTALL SERVICE
+& "$installDir\dnscrypt-proxy.exe" -service stop
+& "$installDir\dnscrypt-proxy.exe" -service uninstall
+Start-Sleep -Seconds 2
+
+# STEP 3: DOWNLOAD + EXTRACT NEW VERSION
+Invoke-WebRequest -Uri $dnscryptUrl -OutFile "$installDir\dnscrypt-proxy.zip"
+Expand-Archive -Path "$installDir\dnscrypt-proxy.zip" -DestinationPath $installDir -Force
+Remove-Item "$installDir\dnscrypt-proxy.zip"
+
+# STEP 4: RESTORE CONFIG
+if (Test-Path $tomlBackup) {
+    Copy-Item $tomlBackup $tomlMain -Force
+}
+
+# STEP 5: REINSTALL + START SERVICE
+& "$installDir\dnscrypt-proxy.exe" -service install
+& "$installDir\dnscrypt-proxy.exe" -service start
+Set-Service -Name $serviceName -StartupType Automatic
+
+Write-Host ">> dnscrypt-proxy updated. Quad9 DNS remains sealed and secured." -ForegroundColor Green
