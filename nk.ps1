@@ -35,7 +35,7 @@ schtasks /Change /TN "\Microsoft\Windows\WindowsUpdate\Scheduled Start" /Disable
 schtasks /Change /TN "\Microsoft\Windows\UpdateOrchestrator\Schedule Scan" /Disable
 schtasks /Change /TN "\Microsoft\Windows\UpdateOrchestrator\USO_UxBroker" /Disable
 
-# Step 6: Block Known MS Telemetry Domains via Hosts File
+# Step 6: Block Known MS Telemetry Domains via Hosts File (with .NET direct write)
 $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
 $blockList = @(
 "0.0.0.0 telemetry.microsoft.com",
@@ -47,16 +47,11 @@ $blockList = @(
 "0.0.0.0 client.wns.windows.com"
 )
 
-# Stop DNS client to release hosts lock
-Stop-Service -Name Dnscache -Force
-Start-Sleep -Seconds 2
-
-# Apply host blocklist
-Add-Content -Path $hostsPath -Value "`n# Microsoft Telemetry Blocklist"
-$blockList | ForEach-Object { Add-Content -Path $hostsPath -Value $_ }
-
-# Restart DNS client
-Start-Service -Name Dnscache
+# Backup and rewrite hosts file using raw method
+Copy-Item -Path $hostsPath -Destination "$hostsPath.bak" -Force
+$existing = Get-Content -Path $hostsPath -ErrorAction Stop
+$combined = $existing + "`n# Microsoft Telemetry Blocklist" + $blockList
+[System.IO.File]::WriteAllLines($hostsPath, $combined)
 
 # Step 7: Configure Firewall to Block Everything by Default
 netsh advfirewall set allprofiles firewallpolicy blockinbound,blockoutbound
