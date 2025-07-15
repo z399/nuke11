@@ -1,0 +1,55 @@
+# ============================
+# DNSCrypt-Proxy Setup (QUAD9 ONLY)
+# ============================
+
+# CONFIG
+$dnscryptUrl = "https://github.com/DNSCrypt/dnscrypt-proxy/releases/latest/download/dnscrypt-proxy-win64.zip"
+$installDir = "C:\Tools\dnscrypt-proxy"
+$serviceName = "dnscrypt-proxy"
+$tomlFile = "$installDir\dnscrypt-proxy.toml"
+
+# STEP 0: KILL DEFENDER TEMP
+Set-MpPreference -DisableRealtimeMonitoring $true
+Set-MpPreference -DisableBehaviorMonitoring $true
+Set-MpPreference -DisableIOAVProtection $true
+Set-MpPreference -DisableScriptScanning $true
+
+# STEP 1: CLEAN INSTALL DIR
+Remove-Item -Recurse -Force $installDir -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+Set-Location $installDir
+
+# STEP 2: DOWNLOAD + EXTRACT
+Invoke-WebRequest -Uri $dnscryptUrl -OutFile "dnscrypt-proxy.zip"
+Expand-Archive -Path "dnscrypt-proxy.zip" -DestinationPath $installDir -Force
+Remove-Item "dnscrypt-proxy.zip"
+
+# STEP 3: INSTALL + START SERVICE
+Start-Process "$installDir\dnscrypt-proxy.exe" -ArgumentList "-service install" -Wait
+Start-Sleep -Seconds 2
+Start-Process "$installDir\dnscrypt-proxy.exe" -ArgumentList "-service start" -Wait
+Set-Service -Name $serviceName -StartupType Automatic
+
+# STEP 4: CONFIGURE TO QUAD9 ONLY
+(Get-Content $tomlFile) -replace '# server_names = .*', 'server_names = ["quad9-doh"]' |
+    Set-Content $tomlFile
+(Get-Content $tomlFile) -replace '# require_dnssec = false', 'require_dnssec = true' |
+    Set-Content $tomlFile
+
+# STEP 5: FORCE DNS TO 127.0.0.1
+$adapters = Get-NetAdapter | Where-Object { $_.Status -eq "Up" }
+foreach ($adapter in $adapters) {
+    Set-DnsClientServerAddress -InterfaceAlias $adapter.Name -ServerAddresses "127.0.0.1"
+}
+
+# STEP 6: BLOCK EXTERNAL DNS LEAKS
+New-NetFirewallRule -DisplayName "Block UDP 53" -Direction Outbound -Protocol UDP -RemotePort 53 -RemoteAddress "0.0.0.0/0" -LocalAddress "!=127.0.0.1" -Action Block
+New-NetFirewallRule -DisplayName "Block TCP 53" -Direction Outbound -Protocol TCP -RemotePort 53 -RemoteAddress "0.0.0.0/0" -LocalAddress "!=127.0.0.1" -Action Block
+New-NetFirewallRule -DisplayName "Block DoH Providers" -Direction Outbound -Protocol TCP -RemoteAddress (
+    "1.1.1.1","1.0.0.1","8.8.8.8","8.8.4.4","149.112.112.112"
+) -Action Block
+
+# STEP 7: FINAL RESTART FOR CONFIG APPLY
+Start-Process "$installDir\dnscrypt-proxy.exe" -ArgumentList "-service restart" -Wait
+
+Write-Host ">> dnscrypt-proxy QUAD9 fortress deployed. DNS sealed, encrypted, system hijacked." -ForegroundColor Green
